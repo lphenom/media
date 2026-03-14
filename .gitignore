@@ -1,6 +1,6 @@
-/.phpunit.result.cache
-/vendor/
-composer.lock.idea/
+.phpunit.result.cache
+composer.lock
+.idea/
 .php-cs-fixer.cache
 vendor/
 *.phar
