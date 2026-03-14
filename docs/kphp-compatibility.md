@@ -1,30 +1,142 @@
 # KPHP Compatibility — lphenom/media
 
 Этот документ описывает все ограничения KPHP, которые применимы к пакету `lphenom/media`,
-и объясняет архитектурные решения, принятые для обеспечения совместимости.
+и объясняет конкретные архитектурные решения, принятые в процессе разработки.
+
+---
+
+## Как работает KPHP-сборка
+
+KPHP (`vkcom/kphp`) компилирует PHP-код в **статический C++ бинарник**:
+
+- KPHP не использует PHP runtime — он сам парсит PHP-код
+- выходной бинарник **не зависит от PHP** вообще
+- KPHP имеет строгий type inference и откажет компилировать неоднозначный код
+- базовый образ — `vkcom/kphp` (Ubuntu 20.04 + PHP 7.4 как tooling, не как runtime)
+
+```bash
+# Проверить компиляцию + PHAR за один шаг
+make kphp-check
+# или
+docker build -f Dockerfile.check -t lphenom-media-check .
+```
 
 ---
 
 ## Что компилируется с KPHP
 
-KPHP entrypoint (`build/kphp-entrypoint.php`) включает только KPHP-совместимые классы:
+`build/kphp-entrypoint.php` включает только KPHP-совместимые классы:
 
-| Файл | Статус |
-|------|--------|
-| `src/Exception/MediaException.php` | ✅ |
-| `src/Dto/VideoInfo.php` | ✅ |
-| `src/ImageProcessorInterface.php` | ✅ |
-| `src/VideoProcessorInterface.php` | ✅ |
-| `src/NoopImageProcessor.php` | ✅ |
-| `src/StubVideoProcessor.php` | ✅ |
-| `src/GdImageProcessor.php` | ❌ PHP only |
-| `src/ImageProcessorFactory.php` | ❌ PHP only |
+| Файл | Включён | Причина |
+|------|---------|---------|
+| `src/Exception/MediaException.php` | ✅ | pure PHP class |
+| `src/Dto/VideoInfo.php` | ✅ | only scalar types |
+| `src/Shell/ShellResult.php` | ✅ | scalar types + string[] |
+| `src/Shell/ShellRunner.php` | ✅ | exec() 1-arg + file() |
+| `src/ImageProcessorInterface.php` | ✅ | interface only |
+| `src/VideoProcessorInterface.php` | ✅ | interface only |
+| `src/ImageMagickProcessor.php` | ✅ | uses ShellRunner only |
+| `src/FfmpegVideoProcessor.php` | ✅ | uses ShellRunner only |
+| `src/VideoProcessorFactory.php` | ✅ | KPHP-safe refs only |
+| `src/GdImageProcessor.php` | ❌ | `\GdImage` type |
+| `src/ImageProcessorFactory.php` | ❌ | references GdImageProcessor |
 
 ---
 
-## Правила, соблюдённые в этом пакете
+## Проблемы, найденные при сборке, и их решения
 
-### 1. Нет constructor property promotion
+### 1. `exec()` с `&$output` — конфликт типов
+
+**Проблема:** KPHP объявляет `exec()` как:
+```
+function exec($command ::: string, &$output ::: mixed = [], int &$result_code = 0): stringfalse
+```
+Параметр `&$output` типизирован как `mixed`. Присвоение `mixed` к `/** @var string[] */` переменной — ошибка компиляции.
+
+**Попытка:**
+```php
+// ❌ KPHP compilation error: assign mixed to $lines but it's declared as @var string[]
+/** @var string[] $lines */
+$lines = [];
+$code  = 0;
+exec($command . ' 2>&1', $lines, $code);
+```
+
+**Решение** — обойти `&$output` полностью через **temp-файл**:
+```php
+// ✅ KPHP-compatible в ShellRunner::run()
+$tmpFile  = '/tmp/lphenom_' . (string) mt_rand(100000, 999999) . '.out';
+$wrapper  = '(' . $command . ') >' . $tmpFile . ' 2>&1; echo $?';
+$lastLine = exec('/bin/sh -c ' . self::escapeArg($wrapper));  // 1 аргумент
+
+$exitCode = 1;
+if ($lastLine !== false) {
+    $exitCode = (int) trim((string) $lastLine);
+}
+
+$rawLines = file($tmpFile);  // 1 аргумент (KPHP требует)
+// ...
+```
+
+`exec()` вызывается с **одним аргументом** — в этом случае нет reference-параметров и конфликта нет.
+
+---
+
+### 2. `substr()` возвращает `string|false` в KPHP
+
+**Проблема:** В KPHP-стабах `substr` объявлен как возвращающий `string|false` (поведение PHP 7). PHP 8 вернул бы пустую строку вместо `false`, но KPHP использует старые стабы.
+
+**Ошибка:**
+```
+$val = substr($line, $eqPos + 1);
+substr returns stringfalse
+```
+
+**Решение** — явный cast `(string)`:
+```php
+// ✅ Везде где substr присваивается переменной:
+$key   = (string) substr($line, 0, $eqPos);
+$val   = (string) substr($line, $eqPos + 1);
+$first = $commaPos === false ? $formatName : (string) substr($formatName, 0, $commaPos);
+
+// И для проверки первого символа:
+if ((string) substr($line, 0, 1) === '[') { ... }
+```
+
+---
+
+### 3. `sys_get_temp_dir()` — функция не поддерживается
+
+**Проблема:**
+```
+Unknown function sys_get_temp_dir
+```
+
+**Решение** — хардкод `/tmp`:
+```php
+// ❌
+$tmpFile = sys_get_temp_dir() . '/lphenom_' . mt_rand() . '.out';
+
+// ✅
+$tmpFile = '/tmp/lphenom_' . (string) mt_rand(100000, 999999) . '.out';
+```
+
+---
+
+### 4. `str_replace()` — cast результата
+
+`str_replace(string, string, string)` в KPHP-стабах может быть typed как `mixed` (overload для array).
+
+```php
+// ✅ Всегда кастуем:
+return "'" . (string) str_replace("'", "'\\''", $arg) . "'";
+```
+
+---
+
+## Общие правила KPHP для этого пакета
+
+### Объявление классов — без constructor property promotion
 
 ```php
 // ❌ НЕ РАБОТАЕТ в KPHP
@@ -35,56 +147,21 @@ final class VideoInfo {
     ) {}
 }
 
-// ✅ ПРАВИЛЬНО — как сделано в пакете
+// ✅ ПРАВИЛЬНО — как сделано в VideoInfo
 final class VideoInfo {
     /** @var string */
     private string $path;
     /** @var int */
     private int $sizeBytes;
 
-    public function __construct(string $path, int $sizeBytes, int $durationSeconds, string $mimeType) {
+    public function __construct(string $path, int $sizeBytes, ...) {
         $this->path      = $path;
         $this->sizeBytes = $sizeBytes;
-        // ...
     }
 }
 ```
 
-### 2. Нет trailing commas в вызовах функций
-
-```php
-// ❌ KPHP не поддерживает trailing comma
-$processor->makeThumbnail($in, $out, 100, 100,);
-
-// ✅ ПРАВИЛЬНО
-$processor->makeThumbnail($in, $out, 100, 100);
-```
-
-### 3. Нет union типов в свойствах классов
-
-```php
-// ❌ ЗАПРЕЩЕНО в KPHP
-private int|string $size;
-
-// ✅ ПРАВИЛЬНО — отдельные типизированные свойства
-private int $sizeBytes;
-```
-
-### 4. `filesize()` — обработка false без union типа
-
-`filesize()` возвращает `int|false`. KPHP обрабатывает встроенные функции особым образом.
-Используем `is_int()` для явного сужения типа:
-
-```php
-// ✅ KPHP-friendly паттерн
-$rawSize   = filesize($path);
-$sizeBytes = 0;
-if (is_int($rawSize)) {
-    $sizeBytes = $rawSize;
-}
-```
-
-### 5. `try/catch` — всегда с хотя бы одним catch
+### `try/catch` — всегда с хотя бы одним catch
 
 ```php
 // ❌ ЗАПРЕЩЕНО
@@ -92,6 +169,7 @@ try {
     $this->saveToPath($dst, $outputPath, $outExt, 85);
 } finally {
     imagedestroy($src);
+    imagedestroy($dst);
 }
 
 // ✅ ПРАВИЛЬНО — как сделано в GdImageProcessor::makeThumbnail
@@ -108,42 +186,79 @@ if ($exception !== null) {
 }
 ```
 
-### 6. Нет __destruct()
+### Без trailing commas, без `__destruct()`
 
-Ресурсы GD освобождаются явно через `imagedestroy()` — `__destruct()` не используется.
+```php
+// ❌ trailing comma
+imagecopyresampled($dst, $src, 0, 0, 0, 0, $newW, $newH, $origW, $origH,);
 
-### 7. Нет str_starts_with / str_ends_with / str_contains
+// ✅
+imagecopyresampled($dst, $src, 0, 0, 0, 0, $newW, $newH, $origW, $origH);
+```
 
-Используются `substr()` и `strpos()` напрямую, либо явные сравнения через `===`.
+### `file()` — только 1 аргумент
 
-### 8. GdImageProcessor — PHP only
+```php
+// ❌ ЗАПРЕЩЕНО
+$lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 
-GD-функции (`imagecreatefromjpeg`, `imagecopyresampled`, `\GdImage` и т.д.) не поддерживаются
-как расширение в KPHP binary. `GdImageProcessor` и `ImageProcessorFactory` исключены из
-KPHP entrypoint — это осознанное архитектурное решение.
+// ✅ ПРАВИЛЬНО
+$rawLines = file($path);
+if ($rawLines !== false) {
+    foreach ($rawLines as $rawLine) {
+        $line = rtrim((string) $rawLine, "\r\n");
+        if ($line !== '') {
+            $lines[] = $line;
+        }
+    }
+}
+```
 
-В KPHP binary для обработки изображений необходимо использовать `NoopImageProcessor`
-или подключить кастомную реализацию через KPHP-совместимый FFI/C++ код.
+### Обработка `filesize()` возвращающего `int|false`
+
+```php
+// ✅ KPHP-friendly — сужение типа через is_int()
+$rawSize   = filesize($path);
+$sizeBytes = 0;
+if (is_int($rawSize)) {
+    $sizeBytes = $rawSize;
+}
+```
+
+### GdImageProcessor — PHP only
+
+GD функции (`imagecreatefromjpeg`, `imagecopyresampled`, тип `\GdImage`) не поддерживаются
+в KPHP binary. `GdImageProcessor` и `ImageProcessorFactory` исключены из `kphp-entrypoint.php`.
+
+В KPHP используйте напрямую:
+```php
+$processor = new ImageMagickProcessor(new ShellRunner());
+```
 
 ---
 
-## Проверка совместимости
+## Запрещённые конструкции (общий список для пакета)
 
-```bash
-# Собрать KPHP binary + PHAR
-make kphp-check
-
-# Или напрямую
-docker build -f Dockerfile.check -t lphenom-media-check .
-```
-
-Обе стадии (`kphp-build`, `phar-build`) должны завершиться с кодом 0.
+| Запрещено | Замена |
+|-----------|--------|
+| `exec($cmd, $output, $code)` — 3 аргумента | `exec($cmd)` 1 аргумент + temp-file |
+| `substr(...)` без cast | `(string) substr(...)` |
+| `sys_get_temp_dir()` | `/tmp` хардкод |
+| `str_replace(...)` без cast | `(string) str_replace(...)` |
+| `\GdImage` тип | Только в PHP-only классах |
+| `file($path, FLAGS)` | `file($path)` 1 аргумент |
+| `try/finally` без `catch` | Добавить `catch (\Throwable $e)` |
+| `readonly`, constructor promotion | Явные свойства + `__construct` body |
+| Trailing commas в вызовах | Убрать последнюю запятую |
+| `__destruct()` | Явная очистка ресурсов |
+| `str_starts_with/ends_with/contains` | `substr()` / `strpos()` |
+| `match()` expression | `if/elseif/else` |
 
 ---
 
 ## Ссылки
 
 - [KPHP vs PHP differences](https://vkcom.github.io/kphp/kphp-language/kphp-vs-php/whats-the-difference.html)
+- [KPHP built-in functions](https://vkcom.github.io/kphp/kphp-language/kphp-vs-php/whats-the-difference.html)
 - [vkcom/kphp Docker image](https://hub.docker.com/r/vkcom/kphp)
-- [docs/media.md](./media.md) — API reference
-
+- [docs/media.md](./media.md) — API reference и системные требования

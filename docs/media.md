@@ -1,6 +1,66 @@
 # LPhenom Media
 
-`lphenom/media` — пакет обработки изображений и видео для экосистемы LPhenom.
+`lphenom/media` — пакет обработки изображений и видео для экосистемы LPhenom.  
+Работает в двух режимах: **PHP shared hosting** (GD + shell) и **KPHP compiled binary** (shell via `exec()`).
+
+---
+
+## Системные требования
+
+### Минимальные (обязательно)
+
+| Требование | Минимум | Рекомендуется |
+|---|---|---|
+| PHP | 8.1 | 8.2+ |
+| Расширение `gd` | — | Рекомендуется для shared hosting |
+| `convert` (ImageMagick) | — | Нужен если GD недоступен |
+| `ffmpeg` + `ffprobe` | Нужен для видео | 4.x + |
+| ОС | Linux / macOS | Linux x86-64 |
+
+### Для работы с изображениями
+
+Нужно **хотя бы одно** из двух:
+
+- **PHP GD extension** — быстро, без shell. Включается через `extension=gd` или `apt-get install php-gd`.  
+  Для поддержки WebP GD должен быть скомпилирован с `--with-webp`.
+- **ImageMagick** (`convert`) — universal fallback. `apt-get install imagemagick` / `brew install imagemagick`.
+
+Если ни GD, ни ImageMagick не доступны — `ImageProcessorFactory::create()` бросит `MediaException`.
+
+### Для работы с видео
+
+- **FFmpeg + ffprobe** (обязательно) — `apt-get install ffmpeg` / `brew install ffmpeg`.  
+  Если `ffmpeg`/`ffprobe` не найдены в `$PATH` — `VideoProcessorFactory::create()` бросит `MediaException`.
+
+### KPHP binary
+
+Дополнительных PHP-расширений не нужно. Обработка ведётся через shell:
+- Изображения → `convert` (ImageMagick)
+- Видео → `ffmpeg` / `ffprobe`
+
+Для компиляции используйте `make kphp-check` (см. [kphp-compatibility.md](./kphp-compatibility.md)).
+
+---
+
+## Быстрый старт
+
+```php
+use LPhenom\Media\ImageProcessorFactory;
+use LPhenom\Media\VideoProcessorFactory;
+
+// Авто-выбор: GdImageProcessor (если GD) или ImageMagickProcessor (если convert)
+$images = ImageProcessorFactory::create();
+$images->makeThumbnail('/uploads/photo.jpg', '/cache/thumb.jpg', 300, 300);
+$images->compressJpeg('/uploads/photo.jpg', '/uploads/photo_75.jpg', 75);
+
+// FFmpeg-процессор
+$video = VideoProcessorFactory::create();
+$info  = $video->probe('/uploads/clip.mp4');
+$video->validateSize('/uploads/clip.mp4', 100 * 1024 * 1024);
+$video->compress('/uploads/clip.mp4', '/uploads/clip_small.mp4', 28);
+$video->resize('/uploads/clip.mp4', '/uploads/clip_720p.mp4', 1280, 720);
+$video->extractThumbnail('/uploads/clip.mp4', '/cache/clip_thumb.jpg', 5);
+```
 
 ---
 
@@ -16,22 +76,28 @@ interface ImageProcessorInterface
 }
 ```
 
-#### `makeThumbnail`
+#### `makeThumbnail(string $inputPath, string $outputPath, int $maxW, int $maxH): void`
 
 Создаёт миниатюру, вписывая изображение в ограничивающий прямоугольник `$maxW × $maxH`
-с сохранением пропорций.
+с **сохранением пропорций** (не растягивает).
 
 ```php
 // 1600×900 → fit 200×200 → output 200×112
 $processor->makeThumbnail('/uploads/banner.jpg', '/cache/banner_thumb.jpg', 200, 200);
 
-// Input 400×400 → fit 100×100 → output 100×100
+// 400×400 → fit 100×100 → output 100×100
 $processor->makeThumbnail('/uploads/avatar.png', '/cache/avatar_thumb.png', 100, 100);
 ```
 
-#### `compressJpeg`
+Бросает `MediaException` если:
+- файл не найден
+- формат не поддерживается
+- `$maxW < 1` или `$maxH < 1`
+
+#### `compressJpeg(string $inputPath, string $outputPath, int $quality): void`
 
 Перекодирует JPEG с заданным качеством (0 — максимальное сжатие, 100 — без потерь).
+Также удаляет EXIF-метаданные (уменьшает размер).
 
 ```php
 $processor->compressJpeg('/uploads/photo.jpg', '/uploads/photo_75.jpg', 75);
@@ -46,30 +112,75 @@ interface VideoProcessorInterface
 {
     public function probe(string $path): VideoInfo;
     public function validateSize(string $path, int $maxBytes): void;
+    public function compress(string $inputPath, string $outputPath, int $crf): void;
+    public function resize(string $inputPath, string $outputPath, int $maxWidth, int $maxHeight): void;
+    public function extractThumbnail(string $inputPath, string $outputPath, int $atSecond): void;
 }
 ```
 
-#### `probe`
+#### `probe(string $path): VideoInfo`
 
-Возвращает `VideoInfo` с базовыми метаданными файла.
-В stub-реализации (`StubVideoProcessor`) duration всегда 0, mime — `video/unknown`.
-
-#### `validateSize`
-
-Бросает `MediaException`, если файл превышает лимит.
+Читает метаданные через `ffprobe`. Возвращает размер файла, длительность, кодек, разрешение.
 
 ```php
-// Максимум 50 МБ
-$video->validateSize('/uploads/clip.mp4', 50 * 1024 * 1024);
+$info = $video->probe('/uploads/clip.mp4');
+echo $info->getWidth();           // 1920
+echo $info->getHeight();          // 1080
+echo $info->getCodec();           // 'h264'
+echo $info->getDurationSeconds(); // 120
+echo $info->getBitrate();         // 4000000 (bps)
+echo $info->getMimeType();        // 'video/mp4'
+```
+
+#### `validateSize(string $path, int $maxBytes): void`
+
+Бросает `MediaException` если файл превышает лимит.
+
+```php
+$video->validateSize('/uploads/clip.mp4', 50 * 1024 * 1024); // 50 MB max
+```
+
+#### `compress(string $inputPath, string $outputPath, int $crf): void`
+
+Перекодирует видео с заданным CRF (Constant Rate Factor).  
+**Меньший CRF = лучшее качество, больший файл.** Диапазон: 0–51.
+
+| CRF | Качество |
+|-----|---------|
+| 18  | Visually lossless |
+| 23  | Default (FFmpeg) |
+| 28  | Good (рекомендуется для сжатия) |
+| 51  | Худшее |
+
+```php
+$video->compress('/uploads/raw.mp4', '/uploads/compressed.mp4', 28);
+```
+
+#### `resize(string $inputPath, string $outputPath, int $maxWidth, int $maxHeight): void`
+
+Масштабирует видео до ограничивающего прямоугольника с **сохранением пропорций**.
+
+```php
+// 1920×1080 → fit 1280×720 → output 1280×720
+$video->resize('/uploads/4k.mp4', '/uploads/720p.mp4', 1280, 720);
+```
+
+#### `extractThumbnail(string $inputPath, string $outputPath, int $atSecond): void`
+
+Извлекает один кадр из видео как JPEG-изображение.
+
+```php
+$video->extractThumbnail('/uploads/clip.mp4', '/cache/thumb.jpg', 5); // кадр на 5-й секунде
 ```
 
 ---
 
 ## Реализации
 
-### `GdImageProcessor` (PHP shared hosting)
+### `GdImageProcessor` — PHP shared hosting
 
-Полная реализация на основе расширения **GD**. Поддерживает JPEG, PNG, GIF, WebP.
+Использует расширение **PHP GD**. Быстро, без shell, in-process.  
+Поддерживает: JPEG, PNG, GIF, WebP (при наличии libwebp в GD).
 
 ```php
 use LPhenom\Media\GdImageProcessor;
@@ -79,57 +190,112 @@ $processor->makeThumbnail('/uploads/photo.jpg', '/cache/thumb.jpg', 300, 300);
 $processor->compressJpeg('/uploads/photo.jpg', '/uploads/photo_opt.jpg', 80);
 ```
 
-**Требования:** расширение `gd` с поддержкой JPEG, WebP, Freetype.
-
 **Форматы:**
-| Расширение | Чтение | Запись |
-|-----------|--------|--------|
-| `.jpg`, `.jpeg` | ✅ | ✅ |
-| `.png` | ✅ | ✅ |
-| `.gif` | ✅ | ✅ |
-| `.webp` | ✅ | ✅ |
 
-### `NoopImageProcessor` (graceful fallback)
+| Расширение | Чтение | Запись | Примечание |
+|-----------|--------|--------|------------|
+| `.jpg`, `.jpeg` | ✅ | ✅ | — |
+| `.png` | ✅ | ✅ | Прозрачность сохраняется |
+| `.gif` | ✅ | ✅ | Анимация не поддерживается |
+| `.webp` | ✅ | ✅ | Требует GD с `--with-webp` |
 
-Реализация-заглушка, которая **ничего не делает** и не бросает исключений.
-Используется автоматически через `ImageProcessorFactory::create()`, когда GD недоступен.
+> ❌ Не включается в KPHP entrypoint (GD-специфичные типы `\GdImage`).
+
+---
+
+### `ImageMagickProcessor` — Shell / KPHP
+
+Использует `convert` (ImageMagick) через `ShellRunner`.  
+Поддерживает все форматы, которые поддерживает ImageMagick (JPEG, PNG, GIF, WebP, TIFF, BMP, …).
 
 ```php
-use LPhenom\Media\NoopImageProcessor;
+use LPhenom\Media\ImageMagickProcessor;
+use LPhenom\Media\Shell\ShellRunner;
 
-$processor = new NoopImageProcessor();
-$processor->makeThumbnail('/any/path', '/any/out', 100, 100); // тихий no-op
+$processor = new ImageMagickProcessor(new ShellRunner());
+$processor->makeThumbnail('/uploads/photo.jpg', '/cache/thumb.jpg', 300, 300);
+$processor->compressJpeg('/uploads/photo.jpg', '/uploads/photo_opt.jpg', 80);
 ```
 
-### `ImageProcessorFactory` (авто-выбор)
+> ✅ KPHP-совместим — только `exec()` и файловые функции.
+
+---
+
+### `ImageProcessorFactory` — авто-выбор
 
 ```php
 use LPhenom\Media\ImageProcessorFactory;
 
-// GdImageProcessor если gd загружен, иначе NoopImageProcessor
 $processor = ImageProcessorFactory::create();
+// Возвращает GdImageProcessor если gd загружен
+// Иначе — ImageMagickProcessor если convert доступен
+// Иначе — бросает MediaException
 ```
 
-> ⚠️ `ImageProcessorFactory` и `GdImageProcessor` **не включаются** в KPHP entrypoint —
-> они используют функции GD-расширения, недоступные в скомпилированном бинарнике.
+> ❌ Не включается в KPHP entrypoint (ссылается на GdImageProcessor).  
+> В KPHP используйте `new ImageMagickProcessor(new ShellRunner())` напрямую.
 
-### `StubVideoProcessor` (MVP, KPHP-совместим)
+---
+
+### `FfmpegVideoProcessor` — FFmpeg / KPHP
+
+Использует `ffmpeg` + `ffprobe` через `ShellRunner`.  
+Реализует полный набор методов `VideoProcessorInterface`.
 
 ```php
-use LPhenom\Media\StubVideoProcessor;
+use LPhenom\Media\FfmpegVideoProcessor;
+use LPhenom\Media\Shell\ShellRunner;
 
-$video = new StubVideoProcessor();
+$shell = new ShellRunner();
+$video = new FfmpegVideoProcessor($shell);
 
-// Validate size
-$video->validateSize('/uploads/video.mp4', 100 * 1024 * 1024);
-
-// Probe metadata
-$info = $video->probe('/uploads/video.mp4');
-echo $info->getPath();            // '/uploads/video.mp4'
-echo $info->getSizeBytes();       // реальный размер файла
-echo $info->getDurationSeconds(); // всегда 0 (stub)
-echo $info->getMimeType();        // всегда 'video/unknown' (stub)
+$info = $video->probe('/uploads/clip.mp4');
+$video->compress('/uploads/clip.mp4', '/uploads/small.mp4', 28);
+$video->resize('/uploads/clip.mp4', '/uploads/720p.mp4', 1280, 720);
+$video->extractThumbnail('/uploads/clip.mp4', '/cache/thumb.jpg', 0);
 ```
+
+> ✅ KPHP-совместим — только `exec()` (1 аргумент), `file()` (1 аргумент), `strpos()`, `substr()`.
+
+---
+
+### `VideoProcessorFactory` — авто-создание
+
+```php
+use LPhenom\Media\VideoProcessorFactory;
+
+$video = VideoProcessorFactory::create();
+// Возвращает FfmpegVideoProcessor если ffmpeg + ffprobe в $PATH
+// Иначе — бросает MediaException
+```
+
+---
+
+### `Shell\ShellRunner` — исполнение команд
+
+Единственная точка взаимодействия с shell. Используется всеми shell-based процессорами.
+
+```php
+use LPhenom\Media\Shell\ShellRunner;
+
+$shell  = new ShellRunner();
+$result = $shell->run('echo hello');
+
+$result->isSuccess();      // true
+$result->getExitCode();    // 0
+$result->getOutput();      // 'hello'
+$result->getOutputLines(); // ['hello']
+
+// Проверить наличие утилиты
+$shell->isAvailable('ffmpeg');  // true / false
+
+// Экранирование аргумента (POSIX single-quote)
+ShellRunner::escapeArg('/path/to/my file.mp4'); // '/path/to/my file.mp4'
+```
+
+**KPHP-совместимость:**  
+`exec()` вызывается с **одним аргументом** — обход ограничения KPHP где `&$output` типизирован как `mixed`.  
+Вывод команды перехватывается через **temp-файл** (`/tmp/lphenom_*.out`).
 
 ---
 
@@ -139,16 +305,24 @@ echo $info->getMimeType();        // всегда 'video/unknown' (stub)
 use LPhenom\Media\Dto\VideoInfo;
 
 $info = new VideoInfo(
-    path:            '/path/to/file.mp4',
-    sizeBytes:       4096000,
-    durationSeconds: 120,
-    mimeType:        'video/mp4'
+    '/path/to/clip.mp4',  // path
+    4096000,              // sizeBytes
+    120,                  // durationSeconds
+    'video/mp4',          // mimeType
+    1920,                 // width  (optional, default 0)
+    1080,                 // height (optional, default 0)
+    'h264',               // codec  (optional, default 'unknown')
+    4000000               // bitrate bps (optional, default 0)
 );
 
 $info->getPath();            // string
-$info->getSizeBytes();       // int
-$info->getDurationSeconds(); // int
-$info->getMimeType();        // string
+$info->getSizeBytes();       // int — размер файла в байтах
+$info->getDurationSeconds(); // int — длительность в секундах
+$info->getMimeType();        // string — MIME-тип
+$info->getWidth();           // int — ширина кадра в пикселях
+$info->getHeight();          // int — высота кадра в пикселях
+$info->getCodec();           // string — кодек видеопотока ('h264', 'vp9', …)
+$info->getBitrate();         // int — битрейт видео в bps
 ```
 
 ---
@@ -157,7 +331,7 @@ $info->getMimeType();        // string
 
 ### `MediaException`
 
-Бросается при любой ошибке обработки медиа:
+Единственный тип исключения в пакете. Бросается при любой ошибке обработки медиа.
 
 ```php
 use LPhenom\Media\Exception\MediaException;
@@ -165,46 +339,47 @@ use LPhenom\Media\Exception\MediaException;
 try {
     $processor->makeThumbnail('/missing.jpg', '/out.jpg', 100, 100);
 } catch (MediaException $e) {
+    // файл не найден, формат не поддерживается, convert/ffmpeg вернул ошибку и т.д.
     echo $e->getMessage();
 }
 ```
 
-Наследует `\RuntimeException` — можно ловить и базовым `\Exception`.
+Наследует `\RuntimeException`.
 
 ---
 
 ## Ограничения shared hosting
 
-При использовании на shared hosting учитывайте:
+1. **GD вместо shell** — на большинстве shared hosting `exec()` / `shell_exec()` заблокированы.  
+   Используйте `GdImageProcessor` (нет shell-вызовов).
 
-1. **GD вместо ImageMagick** — GD обычно предустановлен на shared hosting.
-   ImageMagick (`exec()`, `shell_exec()`) часто заблокирован.
+2. **Нет FFmpeg** — `FfmpegVideoProcessor` требует shell. На shared hosting видео-обработка  
+   обычно недоступна. Используйте только `validateSize()` через прямую проверку `filesize()`.
 
-2. **Нет FFmpeg** — полноценная обработка видео (перекодирование, извлечение кадров)
-   невозможна без доступа к shell. `StubVideoProcessor` ограничен только проверкой размера.
+3. **Лимит памяти** — GD загружает весь пиксельный буфер в RAM.  
+   Для изображения 4000×3000 px требуется ≈ 46 MB RAM (`4000 × 3000 × 4 bytes`).  
+   Проверяйте `memory_limit` и используйте `validateSize()` перед обработкой.
 
-3. **Лимит памяти** — декодирование больших изображений через GD загружает
-   весь пиксельный буфер в RAM. Рекомендуется проверять `memory_limit` и
-   размер файла перед обработкой.
+4. **Лимит времени** — `max_execution_time` на shared hosting 30–60 с.  
+   Видео-перекодирование занимает минуты — только для VPS/dedicated серверов.
 
-4. **Лимит времени выполнения** — `max_execution_time` на shared hosting обычно 30–60 с.
-   Обработка большого количества изображений должна выполняться в очереди.
-
-5. **WebP** — поддерживается только если GD скомпилирован с `--with-webp`.
-   Проверяйте через `gd_info()['WebP Support']`.
+5. **WebP в GD** — поддерживается только если PHP GD скомпилирован с `--with-webp`.  
+   Проверка: `gd_info()['WebP Support'] === true`.
 
 ---
 
 ## KPHP-совместимость
 
-| Компонент | Статус |
-|-----------|--------|
-| `NoopImageProcessor` | ✅ KPHP-совместим |
-| `StubVideoProcessor` | ✅ KPHP-совместим |
-| `VideoInfo` DTO | ✅ KPHP-совместим |
-| `MediaException` | ✅ KPHP-совместим |
-| `GdImageProcessor` | ❌ PHP only (GD extension) |
-| `ImageProcessorFactory` | ❌ PHP only (ссылается на GdImageProcessor) |
+| Компонент | Статус | Примечание |
+|-----------|--------|------------|
+| `Shell\ShellResult` | ✅ | KPHP-compatible |
+| `Shell\ShellRunner` | ✅ | exec() 1 аргумент + temp-file |
+| `ImageMagickProcessor` | ✅ | через ShellRunner |
+| `FfmpegVideoProcessor` | ✅ | через ShellRunner |
+| `VideoProcessorFactory` | ✅ | только KPHP-safe классы |
+| `VideoInfo` DTO | ✅ | явные свойства, нет union types |
+| `MediaException` | ✅ | extends RuntimeException |
+| `GdImageProcessor` | ❌ PHP only | GD-специфичные типы `\GdImage` |
+| `ImageProcessorFactory` | ❌ PHP only | ссылается на GdImageProcessor |
 
-Подробнее — в [kphp-compatibility.md](./kphp-compatibility.md).
-
+Подробнее о всех ограничениях и обходных решениях — в [kphp-compatibility.md](./kphp-compatibility.md).

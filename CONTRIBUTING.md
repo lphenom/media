@@ -5,15 +5,15 @@ and standards for contributing to this package.
 
 ## Development Setup
 
-All tooling runs inside Docker — you do **not** need PHP, Composer, or any extension
-installed locally.
+All tooling runs inside Docker — you do **not** need PHP, Composer, FFmpeg, ImageMagick, or
+any PHP extension installed locally.
 
 ```bash
 # Clone the repo
 git clone git@github.com:lphenom/media.git
 cd media
 
-# Start the dev container and install dependencies
+# Start the dev container (PHP 8.1-alpine + GD + ffmpeg + imagemagick) and install dependencies
 make up
 make install
 
@@ -29,6 +29,16 @@ make phpstan
 # Verify KPHP + PHAR compatibility
 make kphp-check
 ```
+
+## System requirements (handled by Docker)
+
+| Tool | Version in Docker |
+|------|-------------------|
+| PHP | 8.1-alpine3.17 |
+| GD extension | ✅ (libpng + libjpeg + libwebp) |
+| FFmpeg + ffprobe | ✅ (apk: ffmpeg) |
+| ImageMagick | ✅ (apk: imagemagick) |
+| Composer | 2.9.5 |
 
 ## Code Standards
 
@@ -88,8 +98,10 @@ When adding a new `ImageProcessorInterface` or `VideoProcessorInterface` impleme
 
 1. Create the class in `src/` with full PHPDoc.
 2. Add unit tests in `tests/`.
-3. **If KPHP-compatible**, add `require_once` to `build/kphp-entrypoint.php`.
-4. Update `docs/media.md` with usage examples.
+3. **If KPHP-compatible** (uses only `ShellRunner`, no GD), add `require_once` to `build/kphp-entrypoint.php`.
+4. **If PHP-only** (uses GD or other PHP extensions), document it clearly and exclude from KPHP entrypoint.
+5. Update `docs/media.md` with usage examples and system requirements.
+6. Update the implementations table in `README.md`.
 
 ## License
 
