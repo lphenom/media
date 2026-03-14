@@ -7,14 +7,13 @@ namespace LPhenom\Media\Shell;
 /**
  * Executes shell commands and captures output + exit code.
  *
- * This is the single point of shell interaction in lphenom/media.
- * All processors (FfmpegVideoProcessor, ImageMagickProcessor) use this class
- * instead of calling exec() / shell_exec() directly.
- *
- * KPHP-compatible:
- *  - exec() is supported in KPHP
- *  - escapeArg() is a pure PHP fallback for escapeshellarg()
- *    (escapeshellarg is not in KPHP's standard library)
+ * KPHP-compatible implementation notes:
+ *  - exec() with ALL 3 parameters conflicts with KPHP's type system
+ *    (output array is typed as `mixed` in KPHP stubs → can't assign to string[])
+ *  - Solution: exec() with 1 argument only; capture output via temp file;
+ *    capture exit code via `echo $?` in a sub-shell wrapper
+ *  - file() called with 1 argument (KPHP restriction)
+ *  - str_replace cast to (string) — KPHP stubs may return mixed for array overloads
  *  - No union types, no magic, no closures
  */
 final class ShellRunner
@@ -23,16 +22,40 @@ final class ShellRunner
      * Execute a shell command and return its combined stdout+stderr output
      * together with the process exit code.
      *
-     * The command string must already have all arguments properly escaped
-     * using ShellRunner::escapeArg().
+     * Uses a temp-file strategy to avoid KPHP's exec(&$output ::: mixed) issue:
+     *   1. Wraps command in a subshell, redirects stdout+stderr to a temp file
+     *   2. Appends `echo $?` so exec() captures the exit code as its return value
+     *   3. Reads the temp file with file() (1-arg KPHP-safe form)
      */
     public function run(string $command): ShellResult
     {
+        $tmpFile = '/tmp/lphenom_' . (string) mt_rand(100000, 999999) . '.out';
+
+        // Wrap: redirect output to file, echo exit code to stdout (captured by exec)
+        $wrapper  = '(' . $command . ') >' . $tmpFile . ' 2>&1; echo $?';
+        $lastLine = exec('/bin/sh -c ' . self::escapeArg($wrapper));
+
+        $exitCode = 1;
+        if ($lastLine !== false) {
+            $exitCode = (int) trim((string) $lastLine);
+        }
+
+        $rawLines = file($tmpFile);
+
+        if (file_exists($tmpFile)) {
+            unlink($tmpFile);
+        }
+
         /** @var string[] $lines */
         $lines = [];
-        $code  = 0;
-        exec($command . ' 2>&1', $lines, $code);
-        return new ShellResult($lines, $code);
+
+        if ($rawLines !== false) {
+            foreach ($rawLines as $rawLine) {
+                $lines[] = rtrim((string) $rawLine, "\r\n");
+            }
+        }
+
+        return new ShellResult($lines, $exitCode);
     }
 
     /**
@@ -42,11 +65,8 @@ final class ShellRunner
      */
     public function isAvailable(string $binary): bool
     {
-        /** @var string[] $out */
-        $out  = [];
-        $code = 0;
-        exec('which ' . self::escapeArg($binary) . ' 2>/dev/null', $out, $code);
-        return $code === 0 && count($out) > 0;
+        $result = $this->run('which ' . self::escapeArg($binary));
+        return $result->isSuccess() && count($result->getOutputLines()) > 0;
     }
 
     /**
@@ -59,6 +79,6 @@ final class ShellRunner
      */
     public static function escapeArg(string $arg): string
     {
-        return "'" . str_replace("'", "'\\''", $arg) . "'";
+        return "'" . (string) str_replace("'", "'\\''", $arg) . "'";
     }
 }

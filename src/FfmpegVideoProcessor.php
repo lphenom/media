@@ -202,7 +202,7 @@ final class FfmpegVideoProcessor implements VideoProcessorInterface
             }
 
             // Skip section markers like [STREAM], [/STREAM], [FORMAT], [/FORMAT]
-            if (substr($line, 0, 1) === '[') {
+            if ((string) substr($line, 0, 1) === '[') {
                 continue;
             }
 
@@ -211,8 +211,8 @@ final class FfmpegVideoProcessor implements VideoProcessorInterface
                 continue;
             }
 
-            $key = substr($line, 0, $eqPos);
-            $val = substr($line, $eqPos + 1);
+            $key = (string) substr($line, 0, $eqPos);
+            $val = (string) substr($line, $eqPos + 1);
 
             if ($key === 'width') {
                 $width = (int) $val;
@@ -245,7 +245,7 @@ final class FfmpegVideoProcessor implements VideoProcessorInterface
     {
         // Take the first entry from the comma-separated list
         $commaPos = strpos($formatName, ',');
-        $first    = $commaPos === false ? $formatName : substr($formatName, 0, $commaPos);
+        $first    = $commaPos === false ? $formatName : (string) substr($formatName, 0, $commaPos);
 
         if ($first === 'mp4' || $first === 'mov' || $first === 'm4a') {
             return 'video/mp4';
