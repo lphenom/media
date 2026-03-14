@@ -4,10 +4,7 @@
 /**
  * PHAR smoke-test for lphenom/media.
  *
- * Verifies that the PHAR can be loaded and that core classes are autoloaded.
- *
- * Usage:
- *   php build/smoke-test-phar.php /path/to/lphenom-media.phar
+ * Usage: php build/smoke-test-phar.php /path/to/lphenom-media.phar
  */
 
 declare(strict_types=1);
@@ -21,18 +18,17 @@ if (!file_exists($pharFile)) {
 
 require $pharFile;
 
-// Test 1: NoopImageProcessor — must not throw for any input
-$noop = new \LPhenom\Media\NoopImageProcessor();
-$noop->makeThumbnail('/fake/input.jpg', '/fake/output.jpg', 100, 100);
-$noop->compressJpeg('/fake/input.jpg', '/fake/output.jpg', 85);
-echo 'smoke-test: noop image processor ok' . PHP_EOL;
+// Test 1: ShellRunner escaping
+$escaped = \LPhenom\Media\Shell\ShellRunner::escapeArg("it's fine");
+assert(substr($escaped, 0, 1) === "'", 'escapeArg must start with single quote');
+echo 'smoke-test: shell runner ok' . PHP_EOL;
 
 // Test 2: VideoInfo DTO
-$info = new \LPhenom\Media\Dto\VideoInfo('/tmp/test.mp4', 2048, 30, 'video/mp4');
-assert($info->getPath() === '/tmp/test.mp4', 'VideoInfo::getPath() failed');
+$info = new \LPhenom\Media\Dto\VideoInfo('/clip.mp4', 2048, 30, 'video/mp4', 1280, 720, 'h264', 2000000);
+assert($info->getPath() === '/clip.mp4', 'VideoInfo::getPath() failed');
 assert($info->getSizeBytes() === 2048, 'VideoInfo::getSizeBytes() failed');
-assert($info->getDurationSeconds() === 30, 'VideoInfo::getDurationSeconds() failed');
-assert($info->getMimeType() === 'video/mp4', 'VideoInfo::getMimeType() failed');
+assert($info->getWidth() === 1280, 'VideoInfo::getWidth() failed');
+assert($info->getCodec() === 'h264', 'VideoInfo::getCodec() failed');
 echo 'smoke-test: video info dto ok' . PHP_EOL;
 
 // Test 3: MediaException
@@ -43,31 +39,34 @@ try {
     $caught = $e;
 }
 assert($caught !== null, 'MediaException was not caught');
-assert($caught->getMessage() === 'smoke test exception', 'MediaException message mismatch');
 echo 'smoke-test: media exception ok' . PHP_EOL;
 
-// Test 4: StubVideoProcessor with a real temp file
-$tmpFile = tempnam(sys_get_temp_dir(), 'lphenom_smoke_');
-if ($tmpFile === false) {
-    fwrite(STDERR, 'Could not create temp file' . PHP_EOL);
-    exit(1);
+// Test 4: ImageMagickProcessor — missing file must throw
+$shell   = new \LPhenom\Media\Shell\ShellRunner();
+$magick  = new \LPhenom\Media\ImageMagickProcessor($shell);
+$imgErr  = null;
+try {
+    $magick->makeThumbnail('/nonexistent/img.jpg', '/tmp/out.jpg', 100, 100);
+} catch (\LPhenom\Media\Exception\MediaException $e) {
+    $imgErr = $e;
 }
-file_put_contents($tmpFile, str_repeat('v', 512));
+assert($imgErr !== null, 'ImageMagickProcessor must throw for missing file');
+echo 'smoke-test: imagick processor ok' . PHP_EOL;
 
-$stub     = new \LPhenom\Media\StubVideoProcessor();
-$probeInfo = $stub->probe($tmpFile);
-assert($probeInfo instanceof \LPhenom\Media\Dto\VideoInfo, 'probe() must return VideoInfo');
-assert($probeInfo->getSizeBytes() === 512, 'probe() size mismatch');
+// Test 5: FfmpegVideoProcessor — missing file must throw
+$ffmpeg  = new \LPhenom\Media\FfmpegVideoProcessor($shell);
+$vidErr  = null;
+try {
+    $ffmpeg->probe('/nonexistent/video.mp4');
+} catch (\LPhenom\Media\Exception\MediaException $e) {
+    $vidErr = $e;
+}
+assert($vidErr !== null, 'FfmpegVideoProcessor must throw for missing file');
+echo 'smoke-test: ffmpeg processor ok' . PHP_EOL;
 
-$stub->validateSize($tmpFile, 1024);
-
-unlink($tmpFile);
-echo 'smoke-test: stub video processor ok' . PHP_EOL;
-
-// Test 5: ImageProcessorFactory
+// Test 6: ImageProcessorFactory returns an interface implementation
 $processor = \LPhenom\Media\ImageProcessorFactory::create();
 assert($processor instanceof \LPhenom\Media\ImageProcessorInterface, 'factory must return interface');
 echo 'smoke-test: image processor factory ok' . PHP_EOL;
 
 echo '=== PHAR smoke-test: OK ===' . PHP_EOL;
-

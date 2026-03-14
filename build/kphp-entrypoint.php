@@ -3,42 +3,61 @@
 /**
  * KPHP entrypoint for lphenom/media.
  *
- * This file is used exclusively for KPHP compilation verification.
- * It includes only KPHP-compatible classes (no GD extension dependencies).
+ * Includes only KPHP-compatible classes:
+ *   - Shell layer (ShellResult, ShellRunner)
+ *   - ImageMagickProcessor  (no GD — uses exec via ShellRunner)
+ *   - FfmpegVideoProcessor  (no GD — uses exec via ShellRunner)
+ *   - Interfaces, DTOs, Exception
+ *
+ * Excluded (PHP-only): GdImageProcessor, ImageProcessorFactory (references GdImageProcessor).
  *
  * Usage:
  *   kphp -d /build/kphp-out -M cli /build/build/kphp-entrypoint.php
- *
- * Order matters: interfaces and exceptions before concrete classes.
  */
 
 declare(strict_types=1);
 
+// Dependencies first
 require_once __DIR__ . '/../src/Exception/MediaException.php';
 require_once __DIR__ . '/../src/Dto/VideoInfo.php';
+require_once __DIR__ . '/../src/Shell/ShellResult.php';
+require_once __DIR__ . '/../src/Shell/ShellRunner.php';
+
+// Interfaces
 require_once __DIR__ . '/../src/ImageProcessorInterface.php';
 require_once __DIR__ . '/../src/VideoProcessorInterface.php';
-require_once __DIR__ . '/../src/NoopImageProcessor.php';
-require_once __DIR__ . '/../src/StubVideoProcessor.php';
+
+// Implementations (KPHP-compatible — use ShellRunner, not GD)
+require_once __DIR__ . '/../src/ImageMagickProcessor.php';
+require_once __DIR__ . '/../src/FfmpegVideoProcessor.php';
+
+// Factory (KPHP-compatible — only references KPHP-safe classes)
+require_once __DIR__ . '/../src/VideoProcessorFactory.php';
 
 // ---------------------------------------------------------------------------
-// Smoke: NoopImageProcessor
+// Smoke: ShellRunner + ShellResult
 // ---------------------------------------------------------------------------
-$noop = new \LPhenom\Media\NoopImageProcessor();
-$noop->makeThumbnail('/tmp/in.jpg', '/tmp/out.jpg', 100, 100);
-$noop->compressJpeg('/tmp/in.jpg', '/tmp/out.jpg', 85);
+$runner = new \LPhenom\Media\Shell\ShellRunner();
+$result = $runner->run('echo kphp_test');
 
-echo 'kphp: noop image processor ok' . PHP_EOL;
+if ($result->isSuccess()) {
+    echo 'kphp: shell runner ok, output: ' . $result->getOutput() . PHP_EOL;
+}
+
+$escaped = \LPhenom\Media\Shell\ShellRunner::escapeArg("it's a path");
+echo 'kphp: escapeArg ok: ' . $escaped . PHP_EOL;
 
 // ---------------------------------------------------------------------------
 // Smoke: VideoInfo DTO
 // ---------------------------------------------------------------------------
-$info = new \LPhenom\Media\Dto\VideoInfo('/tmp/clip.mp4', 1048576, 60, 'video/mp4');
+$info = new \LPhenom\Media\Dto\VideoInfo('/tmp/clip.mp4', 1048576, 60, 'video/mp4', 1920, 1080, 'h264', 4000000);
 
 echo 'kphp: video info path='     . $info->getPath()            . PHP_EOL;
 echo 'kphp: video info size='     . $info->getSizeBytes()       . PHP_EOL;
 echo 'kphp: video info duration=' . $info->getDurationSeconds() . PHP_EOL;
 echo 'kphp: video info mime='     . $info->getMimeType()        . PHP_EOL;
+echo 'kphp: video info width='    . $info->getWidth()           . PHP_EOL;
+echo 'kphp: video info codec='    . $info->getCodec()           . PHP_EOL;
 
 // ---------------------------------------------------------------------------
 // Smoke: MediaException
@@ -55,19 +74,36 @@ if ($caught !== null) {
 }
 
 // ---------------------------------------------------------------------------
-// Smoke: StubVideoProcessor (pure logic, no real file I/O required)
+// Smoke: ImageMagickProcessor instantiation + missing-file error
 // ---------------------------------------------------------------------------
-$stub       = new \LPhenom\Media\StubVideoProcessor();
-$stubCaught = null;
+$shell    = new \LPhenom\Media\Shell\ShellRunner();
+$magick   = new \LPhenom\Media\ImageMagickProcessor($shell);
+$imgError = null;
+
 try {
-    $stub->probe('/definitely/not/existing/video.mp4');
+    $magick->makeThumbnail('/nonexistent/file.jpg', '/tmp/out.jpg', 100, 100);
 } catch (\LPhenom\Media\Exception\MediaException $e) {
-    $stubCaught = $e;
+    $imgError = $e;
 }
 
-if ($stubCaught !== null) {
-    echo 'kphp: stub video processor throws for missing file: ok' . PHP_EOL;
+if ($imgError !== null) {
+    echo 'kphp: imagick throws for missing file: ok' . PHP_EOL;
+}
+
+// ---------------------------------------------------------------------------
+// Smoke: FfmpegVideoProcessor instantiation + missing-file error
+// ---------------------------------------------------------------------------
+$ffmpeg   = new \LPhenom\Media\FfmpegVideoProcessor($shell);
+$vidError = null;
+
+try {
+    $ffmpeg->probe('/nonexistent/video.mp4');
+} catch (\LPhenom\Media\Exception\MediaException $e) {
+    $vidError = $e;
+}
+
+if ($vidError !== null) {
+    echo 'kphp: ffmpeg throws for missing file: ok' . PHP_EOL;
 }
 
 echo '=== KPHP entrypoint: OK ===' . PHP_EOL;
-
