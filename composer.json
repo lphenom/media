@@ -1,0 +1,44 @@
+{
+    "name": "lphenom/media",
+    "description": "LPhenom Media — image and video processing for shared hosting and KPHP",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["lphenom", "media", "image", "video", "gd", "kphp"],
+    "authors": [
+        {
+            "name": "LPhenom Contributors",
+            "homepage": "https://github.com/lphenom"
+        }
+    ],
+    "require": {
+        "php": ">=8.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5",
+        "phpstan/phpstan": "^1.12",
+        "friendsofphp/php-cs-fixer": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "LPhenom\\Media\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "LPhenom\\Media\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "lint": "php-cs-fixer fix --dry-run --diff --allow-risky=yes",
+        "lint-fix": "php-cs-fixer fix --allow-risky=yes",
+        "phpstan": "phpstan analyse"
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true
+    },
+    "minimum-stability": "stable"
+}
+
+

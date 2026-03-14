@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.1', '8.2', '8.3']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: gd
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ runner.os }}-php${{ matrix.php }}-composer-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php${{ matrix.php }}-composer-
+
+      - name: Install dependencies
+        run: composer install --no-progress --prefer-dist --no-interaction
+
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --no-progress
+
+      - name: Check code style (php-cs-fixer)
+        run: vendor/bin/php-cs-fixer fix --dry-run --diff --allow-risky=yes --no-interaction
+
+      - name: Run PHPUnit
+        run: vendor/bin/phpunit --no-progress
+
+  kphp-check:
+    name: KPHP Compatibility Check
+    runs-on: ubuntu-latest
+    # Run only on push to main and on PRs; skip for draft PRs
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build KPHP binary + PHAR (Dockerfile.check)
+        run: docker build -f Dockerfile.check -t lphenom-media-check .
+
+
