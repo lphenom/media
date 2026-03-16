@@ -1,5 +1,6 @@
 {
     "name": "lphenom/media",
+    "version": "0.1.0",
     "description": "LPhenom Media — image and video processing for shared hosting and KPHP",
     "type": "library",
     "license": "MIT",

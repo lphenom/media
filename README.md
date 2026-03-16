@@ -4,26 +4,26 @@
 [![PHP](https://img.shields.io/badge/PHP-8.1%2B-blue)](https://www.php.net/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Image and video processing utilities for the **LPhenom** ecosystem.
+Утилиты для обработки изображений и видео в экосистеме **LPhenom**.
 
-Designed to work in two modes:
-- 🏠 **PHP shared hosting** — GD extension (fast, in-process) or ImageMagick via shell
-- ⚡ **KPHP compiled binary** — shell-only via `ShellRunner` (no GD required)
+Работает в двух режимах:
+- 🏠 **PHP shared hosting** — расширение GD (быстро, in-process) или ImageMagick через shell
+- ⚡ **KPHP compiled binary** — только через shell via `ShellRunner` (GD не нужен)
 
 ---
 
-## Requirements
+## Системные требования
 
-| Requirement | Minimum | Recommended |
+| Требование | Минимум | Рекомендуется |
 |---|---|---|
 | PHP | 8.1 | 8.2+ |
-| GD extension | — | For shared hosting image processing |
-| ImageMagick (`convert`) | — | Required if GD unavailable; required in KPHP |
-| FFmpeg + ffprobe | Required for video | 4.x+ |
-| OS | Linux / macOS | Linux x86-64 |
+| Расширение GD | — | Для обработки изображений на shared hosting |
+| ImageMagick (`convert`) | — | Нужен если GD недоступен; обязателен в KPHP |
+| FFmpeg + ffprobe | Обязателен для видео | 4.x+ |
+| ОС | Linux / macOS | Linux x86-64 |
 
 ```bash
-# Install system dependencies (Debian/Ubuntu)
+# Установка системных зависимостей (Debian/Ubuntu)
 apt-get install php-gd imagemagick ffmpeg
 
 # macOS
@@ -32,7 +32,7 @@ brew install imagemagick ffmpeg
 
 ---
 
-## Installation
+## Установка
 
 ```bash
 composer require lphenom/media
@@ -40,53 +40,53 @@ composer require lphenom/media
 
 ---
 
-## Quick Start
+## Быстрый старт
 
-### Image processing
+### Обработка изображений
 
 ```php
 use LPhenom\Media\ImageProcessorFactory;
 
-// Auto-selects: GdImageProcessor (GD available) → ImageMagickProcessor (convert available)
-// Throws MediaException if neither is available
+// Авто-выбор: GdImageProcessor (если GD доступен) → ImageMagickProcessor (если доступен convert)
+// Бросает MediaException если ни одно из двух недоступно
 $processor = ImageProcessorFactory::create();
 
-// Resize to fit within 200×200, preserving aspect ratio
+// Уменьшить до 200×200 с сохранением пропорций
 $processor->makeThumbnail('/uploads/photo.jpg', '/cache/thumb.jpg', 200, 200);
 
-// Re-encode JPEG at 75% quality (strips EXIF)
+// Пережать JPEG с качеством 75% (убирает EXIF)
 $processor->compressJpeg('/uploads/photo.jpg', '/uploads/photo_75.jpg', 75);
 ```
 
-### Video processing
+### Обработка видео
 
 ```php
 use LPhenom\Media\VideoProcessorFactory;
 use LPhenom\Media\Exception\MediaException;
 
-// Requires ffmpeg + ffprobe in $PATH; throws MediaException if not found
+// Требует ffmpeg + ffprobe в $PATH; бросает MediaException если не найдены
 $video = VideoProcessorFactory::create();
 
-// Probe metadata
+// Читаем метаданные
 $info = $video->probe('/uploads/clip.mp4');
-echo $info->getWidth() . 'x' . $info->getHeight(); // e.g. 1920x1080
-echo $info->getDurationSeconds();                   // e.g. 120
-echo $info->getCodec();                             // e.g. h264
+echo $info->getWidth() . 'x' . $info->getHeight(); // напр. 1920x1080
+echo $info->getDurationSeconds();                   // напр. 120
+echo $info->getCodec();                             // напр. h264
 
-// Validate upload size before processing
-$video->validateSize('/uploads/clip.mp4', 100 * 1024 * 1024); // 100 MB max
+// Проверить размер файла перед обработкой
+$video->validateSize('/uploads/clip.mp4', 100 * 1024 * 1024); // макс. 100 МБ
 
-// Compress (CRF 28 = good quality, smaller file)
+// Сжать (CRF 28 = хорошее качество, меньший файл)
 $video->compress('/uploads/raw.mp4', '/uploads/compressed.mp4', 28);
 
-// Resize to fit within 1280×720
+// Ресайз до 1280×720
 $video->resize('/uploads/4k.mp4', '/uploads/720p.mp4', 1280, 720);
 
-// Extract thumbnail at 5 seconds
+// Извлечь превью на 5-й секунде
 $video->extractThumbnail('/uploads/clip.mp4', '/cache/thumb.jpg', 5);
 ```
 
-### KPHP mode (no GD)
+### KPHP-режим (без GD)
 
 ```php
 use LPhenom\Media\ImageMagickProcessor;
@@ -100,41 +100,41 @@ $video  = new FfmpegVideoProcessor($shell);
 
 ---
 
-## Implementations
+## Реализации
 
-| Class | Backend | KPHP | Description |
-|-------|---------|------|-------------|
-| `GdImageProcessor` | PHP GD ext | ❌ | Fast in-process image processing |
-| `ImageMagickProcessor` | `convert` cmd | ✅ | Shell-based, all formats |
-| `FfmpegVideoProcessor` | `ffmpeg`/`ffprobe` | ✅ | Full video processing pipeline |
-| `ImageProcessorFactory` | Auto | ❌ | GD → ImageMagick auto-selection |
-| `VideoProcessorFactory` | FFmpeg | ✅ | Creates FfmpegVideoProcessor |
-| `Shell\ShellRunner` | `exec()` | ✅ | Single shell execution point |
+| Класс | Backend | KPHP | Описание |
+|-------|---------|------|----------|
+| `GdImageProcessor` | PHP GD ext | ❌ | Быстрая in-process обработка изображений |
+| `ImageMagickProcessor` | `convert` cmd | ✅ | Через shell, все форматы |
+| `FfmpegVideoProcessor` | `ffmpeg`/`ffprobe` | ✅ | Полный пайплайн обработки видео |
+| `ImageProcessorFactory` | Авто | ❌ | GD → ImageMagick авто-выбор |
+| `VideoProcessorFactory` | FFmpeg | ✅ | Создаёт FfmpegVideoProcessor |
+| `Shell\ShellRunner` | `exec()` | ✅ | Единственная точка запуска shell-команд |
 
 ---
 
-## Development
+## Разработка
 
 ```bash
-make up          # Start Docker dev container (PHP 8.1-alpine + GD + ffmpeg + imagemagick)
-make install     # Install Composer dependencies
-make test        # Run PHPUnit tests
-make lint        # Check code style (php-cs-fixer)
-make phpstan     # Run static analysis
-make kphp-check  # Verify KPHP compilation + PHAR build
+make up          # Запустить Docker dev-контейнер (PHP 8.1-alpine + GD + ffmpeg + imagemagick)
+make install     # Установить Composer зависимости
+make test        # Запустить PHPUnit тесты
+make lint        # Проверить стиль кода (php-cs-fixer)
+make phpstan     # Запустить статический анализ
+make kphp-check  # Проверить компиляцию KPHP + сборку PHAR
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for full development guide.
+Подробное руководство для разработчиков — в [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-## Documentation
+## Документация
 
-- [docs/media.md](docs/media.md) — Full API reference, system requirements, shared hosting notes
-- [docs/kphp-compatibility.md](docs/kphp-compatibility.md) — KPHP issues found & solutions
+- [docs/media.md](docs/media.md) — Полный API reference, системные требования, особенности shared hosting
+- [docs/kphp-compatibility.md](docs/kphp-compatibility.md) — Найденные KPHP-проблемы и их решения
 
 ---
 
-## License
+## Лицензия
 
-MIT — see [LICENSE](LICENSE).
+MIT — см. [LICENSE](LICENSE).

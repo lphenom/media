@@ -1,35 +1,20 @@
-# Security Policy
+# Политика безопасности
 
-## Supported Versions
+## Поддерживаемые версии
 
-| Version | Supported |
-|---------|-----------|
-| 0.1.x   | ✅         |
+| Версия | Поддержка |
+|--------|-----------|
+| 0.x    | ✅         |
 
-## Reporting a Vulnerability
+## Сообщить об уязвимости
 
-If you discover a security vulnerability in `lphenom/media`, please report it
-**privately** to avoid public disclosure before a fix is available.
+Пожалуйста, **не** создавайте публичный GitHub Issue для уязвимостей безопасности.
 
-**Contact:** Open a [GitHub Security Advisory](https://github.com/lphenom/media/security/advisories/new)
-on this repository, or email the maintainer directly.
+Отправьте подробный отчёт на **popkovd.o@yandex.ru**, указав:
 
-Please include:
-- A description of the vulnerability and its potential impact.
-- Steps to reproduce the issue.
-- Any suggested mitigations or patches.
+- Описание уязвимости
+- Шаги для воспроизведения
+- Затронутые версии
+- Предлагаемое исправление (опционально)
 
-We will acknowledge receipt within **48 hours** and aim to release a fix within
-**14 days** for critical issues.
-
-## Scope
-
-This package handles image and video file processing. Security-relevant areas include:
-
-- **Path traversal** — always validate that paths point to expected directories before
-  passing them to `GdImageProcessor` or `StubVideoProcessor`.
-- **File size limits** — use `VideoProcessorInterface::validateSize()` before processing
-  user-uploaded files to prevent DoS via oversized uploads.
-- **Denial of Service via malformed images** — GD may be slow or crash on adversarially
-  crafted image files. Run processing in a resource-limited environment.
-
+Мы стремимся ответить в течение **72 часов** и выпустить патч в течение **7 дней** для подтверждённых проблем.
