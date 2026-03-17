@@ -13,6 +13,8 @@ use LPhenom\Media\Shell\ShellRunner;
  * Requires FFmpeg to be installed. Throws MediaException if ffmpeg is not found.
  *
  * KPHP-compatible: no reflection, no dynamic class loading.
+ *
+ * @lphenom-build shared, kphp
  */
 final class VideoProcessorFactory
 {

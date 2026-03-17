@@ -23,23 +23,48 @@ docker build -f Dockerfile.check -t lphenom-media-check .
 
 ---
 
+## Аннотация `@lphenom-build`
+
+Каждый класс/интерфейс пакета помечен аннотацией в PHPDoc-блоке класса:
+
+```php
+/**
+ * ...
+ * @lphenom-build shared, kphp   ← входит и в PHP shared hosting, и в KPHP
+ * @lphenom-build shared          ← только PHP shared hosting (GD и пр.)
+ * @lphenom-build none             ← исключить из обоих билдов
+ */
+```
+
+| Значение | Смысл |
+|----------|-------|
+| `shared` | Только PHP shared hosting (GD extension, расширения PHP) |
+| `kphp` | Только KPHP binary |
+| `shared, kphp` | Работает в обоих окружениях |
+| `none` | Исключить из всех билдов |
+
+Аннотация предназначена для инструментов, которые генерируют KPHP entrypoint:  
+файлы без `kphp` в значении не должны попадать в `kphp-entrypoint.php`.
+
+---
+
 ## Что компилируется с KPHP
 
-`build/kphp-entrypoint.php` включает только KPHP-совместимые классы:
+`build/kphp-entrypoint.php` включает только файлы с `@lphenom-build shared, kphp`:
 
-| Файл | Включён | Причина |
-|------|---------|---------|
-| `src/Exception/MediaException.php` | ✅ | pure PHP class |
-| `src/Dto/VideoInfo.php` | ✅ | only scalar types |
-| `src/Shell/ShellResult.php` | ✅ | scalar types + string[] |
-| `src/Shell/ShellRunner.php` | ✅ | exec() 1-arg + file() |
-| `src/ImageProcessorInterface.php` | ✅ | interface only |
-| `src/VideoProcessorInterface.php` | ✅ | interface only |
-| `src/ImageMagickProcessor.php` | ✅ | uses ShellRunner only |
-| `src/FfmpegVideoProcessor.php` | ✅ | uses ShellRunner only |
-| `src/VideoProcessorFactory.php` | ✅ | KPHP-safe refs only |
-| `src/GdImageProcessor.php` | ❌ | `\GdImage` type |
-| `src/ImageProcessorFactory.php` | ❌ | references GdImageProcessor |
+| Файл | `@lphenom-build` | Включён в KPHP |
+|------|-----------------|---------------|
+| `src/Exception/MediaException.php` | `shared, kphp` | ✅ pure PHP class |
+| `src/Dto/VideoInfo.php` | `shared, kphp` | ✅ only scalar types |
+| `src/Shell/ShellResult.php` | `shared, kphp` | ✅ scalar types + string[] |
+| `src/Shell/ShellRunner.php` | `shared, kphp` | ✅ exec() 1-arg + file() |
+| `src/ImageProcessorInterface.php` | `shared, kphp` | ✅ interface only |
+| `src/VideoProcessorInterface.php` | `shared, kphp` | ✅ interface only |
+| `src/ImageMagickProcessor.php` | `shared, kphp` | ✅ uses ShellRunner only |
+| `src/FfmpegVideoProcessor.php` | `shared, kphp` | ✅ uses ShellRunner only |
+| `src/VideoProcessorFactory.php` | `shared, kphp` | ✅ KPHP-safe refs only |
+| `src/GdImageProcessor.php` | `shared` | ❌ требует `gd` PHP extension |
+| `src/ImageProcessorFactory.php` | `shared` | ❌ ссылается на GdImageProcessor |
 
 ---
 
@@ -225,10 +250,11 @@ if (is_int($rawSize)) {
 }
 ```
 
-### GdImageProcessor — PHP only
+### GdImageProcessor — только `@lphenom-build shared`
 
 GD функции (`imagecreatefromjpeg`, `imagecopyresampled`, тип `\GdImage`) не поддерживаются
-в KPHP binary. `GdImageProcessor` и `ImageProcessorFactory` исключены из `kphp-entrypoint.php`.
+в KPHP binary. `GdImageProcessor` помечен `@lphenom-build shared` и исключён из `kphp-entrypoint.php`.
+`ImageProcessorFactory` тоже исключён, так как ссылается на `GdImageProcessor`.
 
 В KPHP используйте напрямую:
 ```php

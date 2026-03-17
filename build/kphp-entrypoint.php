@@ -3,13 +3,16 @@
 /**
  * KPHP entrypoint for lphenom/media.
  *
- * Includes only KPHP-compatible classes:
- *   - Shell layer (ShellResult, ShellRunner)
- *   - ImageMagickProcessor  (no GD — uses exec via ShellRunner)
- *   - FfmpegVideoProcessor  (no GD — uses exec via ShellRunner)
- *   - Interfaces, DTOs, Exception
+ * Includes only files annotated with @lphenom-build kphp  or  @lphenom-build shared, kphp:
+ *   - Shell layer         (ShellResult, ShellRunner)          @lphenom-build shared, kphp
+ *   - ImageMagickProcessor (uses ShellRunner, no GD)          @lphenom-build shared, kphp
+ *   - FfmpegVideoProcessor (uses ShellRunner, no GD)          @lphenom-build shared, kphp
+ *   - VideoProcessorFactory                                    @lphenom-build shared, kphp
+ *   - Interfaces, DTOs, Exception                             @lphenom-build shared, kphp
  *
- * Excluded (PHP-only): GdImageProcessor, ImageProcessorFactory (references GdImageProcessor).
+ * Excluded (@lphenom-build shared — PHP shared hosting only):
+ *   - GdImageProcessor        (requires `gd` PHP extension)
+ *   - ImageProcessorFactory   (references GdImageProcessor)
  *
  * Usage:
  *   kphp -d /build/kphp-out -M cli /build/build/kphp-entrypoint.php

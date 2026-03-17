@@ -8,6 +8,8 @@ namespace LPhenom\Media\Shell;
  * Value object representing the result of a shell command execution.
  *
  * KPHP-compatible: explicit property types, no union types, no magic.
+ *
+ * @lphenom-build shared, kphp
  */
 final class ShellResult
 {

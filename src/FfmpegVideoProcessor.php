@@ -17,6 +17,8 @@ use LPhenom\Media\Shell\ShellRunner;
  *  - uses ShellRunner (exec()) instead of proc_open / shell_exec
  *  - no GD, no Reflection, no union types, no closures
  *  - ffprobe output parsed with strpos/substr/explode
+ *
+ * @lphenom-build shared, kphp
  */
 final class FfmpegVideoProcessor implements VideoProcessorInterface
 {

@@ -15,6 +15,8 @@ namespace LPhenom\Media\Shell;
  *  - file() called with 1 argument (KPHP restriction)
  *  - str_replace cast to (string) — KPHP stubs may return mixed for array overloads
  *  - No union types, no magic, no closures
+ *
+ * @lphenom-build shared, kphp
  */
 final class ShellRunner
 {

@@ -18,6 +18,8 @@ use LPhenom\Media\Shell\ShellRunner;
  *
  * NOTE: This factory itself is PHP-only because it references GdImageProcessor
  *       which uses GD-specific types. In KPHP, instantiate ImageMagickProcessor directly.
+ *
+ * @lphenom-build shared
  */
 final class ImageProcessorFactory
 {

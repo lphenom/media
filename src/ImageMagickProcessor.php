@@ -19,6 +19,8 @@ use LPhenom\Media\Shell\ShellRunner;
  *
  * This is the preferred implementation in KPHP binaries where PHP extensions
  * are not available.
+ *
+ * @lphenom-build shared, kphp
  */
 final class ImageMagickProcessor implements ImageProcessorInterface
 {

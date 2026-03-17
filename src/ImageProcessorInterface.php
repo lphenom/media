@@ -8,6 +8,8 @@ namespace LPhenom\Media;
  * Contract for image processing operations.
  *
  * KPHP-compatible interface — no callable types, no magic.
+ *
+ * @lphenom-build shared, kphp
  */
 interface ImageProcessorInterface
 {

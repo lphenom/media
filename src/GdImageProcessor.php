@@ -12,9 +12,11 @@ use LPhenom\Media\Exception\MediaException;
  * Requires the `gd` PHP extension.
  * Supports JPEG, PNG, GIF, WebP.
  *
- * NOTE: This class is NOT included in the KPHP entrypoint — GD functions
- *       are PHP-extension-specific and not needed in a compiled binary.
+ * NOTE: This class is NOT included in the KPHP build — GD functions
+ *       are PHP-extension-specific and not available in a compiled binary.
  *       Use ImageProcessorFactory::create() to get the appropriate implementation.
+ *
+ * @lphenom-build shared
  */
 final class GdImageProcessor implements ImageProcessorInterface
 {

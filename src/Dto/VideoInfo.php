@@ -12,6 +12,8 @@ namespace LPhenom\Media\Dto;
  *  - no readonly
  *  - no union property types
  *  - explicit property declarations with defaults
+ *
+ * @lphenom-build shared, kphp
  */
 final class VideoInfo
 {

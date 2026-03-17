@@ -10,6 +10,8 @@ use LPhenom\Media\Dto\VideoInfo;
  * Contract for video processing operations.
  *
  * KPHP-compatible interface — no callable types, no magic.
+ *
+ * @lphenom-build shared, kphp
  */
 interface VideoProcessorInterface
 {
