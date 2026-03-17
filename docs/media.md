@@ -42,6 +42,14 @@
 
 ---
 
+## Установка
+
+```bash
+composer require lphenom/media:^0.1
+```
+
+---
+
 ## Быстрый старт
 
 ```php

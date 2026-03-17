@@ -35,7 +35,7 @@ brew install imagemagick ffmpeg
 ## Установка
 
 ```bash
-composer require lphenom/media
+composer require lphenom/media:^0.1
 ```
 
 ---
